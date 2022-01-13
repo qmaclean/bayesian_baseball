@@ -43,10 +43,9 @@ career<-Batting %>%
   mutate(avg = H / AB)
 
 career<-career %>%
-  left_join(master,by=c("playerID"))
-
-career<-career %>%
+  left_join(Master,by=c("playerID")) %>%
   filter(AB > 500)
+
 
 ggplot(career,aes(avg)) +
   geom_histogram(binwidth = .005)
@@ -66,10 +65,9 @@ ggplot(career) +
 
 
 career<-career %>%
-  mutate(est = (alpha0 + H) / (alpha0 + beta0 + AB))
-
-career %>%
+  mutate(est = (alpha0 + H) / (alpha0 + beta0 + AB)) %>%
   arrange(desc(est))
+
 
 ggplot(career,aes(avg,est,color=AB)) +
   geom_point() +
@@ -81,4 +79,29 @@ ggplot(career,aes(avg,est,color=AB)) +
 
 ## horizontal dash = 0.259
 
-#### Credible
+#### Understanding Credible Intervals
+binom.test(x = 1,n=3)$conf.int
+
+## Posterior Distribution
+career<-career %>%
+  mutate(alpha1 = alpha0 + H,
+         beta1 = beta0 + AB - H) %>%
+  mutate(eb_estimate = (H + alpha0) / (AB + alpha0 + beta0))
+
+padres_2007<-c('bardjo01','blumge01','branyru01',
+               'gilesma01','gonzaad01','greenkh01',
+               'camermi01','bradlmi01','gilesbr02',
+               'sledgte01')
+
+career_pads_07<-career %>%
+  filter(playerID %in% c('bardjo01','blumge01','branyru01',
+                         'gilesma01','gonzaad01','greenkh01',
+                         'camermi01','bradlmi01','gilesbr02',
+                         'sledgte01'))
+
+### create beta distribution 
+career_pads_07<-career_pads_07 %>%
+  mutate(PEP = pbeta(.3,alpha1,beta1))
+
+
+
