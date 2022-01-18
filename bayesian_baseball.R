@@ -4,6 +4,9 @@ library(MASS)
 #devtools::install_github("dgrtwo/ebbr")
 library(ebbr)
 library(splines)
+library(purrr)
+library(broom)
+library(broomExtra)
 
 options(digits = 3)
 
@@ -37,6 +40,7 @@ library(Lahman)
 data("Master")
 data("Batting")
 data("Pitching")
+
 
 pitchers <- Pitching %>%
   group_by(playerID) %>%
@@ -197,5 +201,168 @@ career_w_pitchers <- Batting %>%
 
 ggplot(career_w_pitchers,aes(H/AB)) +
   geom_histogram()
+
+
+###### simulations #########
+## calculate empirical bayes prior
+prior<-career_full %>%
+  ebb_fit_prior(H,AB)
+
+prior
+
+alpha0<-tidy(prior)$alpha
+beta0<-tidy(prior)$beta
+
+qplot(rbeta(10000,alpha0,beta0)) +
+  theme_bw()
+
+ggplot(career,aes(AB)) +
+  geom_histogram() +
+  scale_x_log10() +
+  theme_bw()
+
+set.seed(2017)
+career_sim<-career  %>%
+  mutate(p = rbeta(n(),alpha0,beta0),
+         H = rbinom(n(),AB,p))
+
+career_sim
+
+career_sim_eb<-career_sim %>%
+  add_ebb_estimate(H, AB)
+
+career_sim_eb
+
+career_sim_gathered<-career_sim_eb %>%
+  rename(Shrunken = .fitted,Raw = .raw) %>%
+  gather(type,estimate,Shrunken,Raw)
+
+career_sim_gathered %>%
+  filter(AB >= 10) %>%
+  ggplot(aes(p, estimate, color = AB)) +
+  geom_point() +
+  geom_abline(color = "red") +
+  geom_smooth(method = "lm", color = "white", lty = 2, se = FALSE) +
+  scale_color_continuous(trans = "log", breaks = c(10, 100, 1000, 10000)) +
+  facet_wrap(~ type) +
+  labs(x = "True batting average (p)",
+       y = "Raw or shrunken batting average",
+       title = "Empirical Bayes shrinkage reduces variance, but causes bias",
+       subtitle = "Red line is x = y; dashed white line is a linear fit")
+
+### mean-squared error and bias relative to AB
+career_sim_gathered %>%
+  group_by(type) %>%
+  summarize(mse = mean((estimate - p)^ 2))
+
+## mse of shrunken is lower than raw, which means the
+## method has succeeded
+
+metric_by_bin<- career_sim_gathered %>%
+  group_by(type, AB = 10 ^ (round(log10(AB)))) %>%
+  summarize(mse = mean((estimate - p) ^ 2))
+
+ggplot(metric_by_bin,aes(AB,mse, color = type)) +
+  geom_line() +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(x = "Number of at-bats (AB)",
+       y = "Mean-squared-error within this bin (note log scale)",
+       title = "Mean squared error is higher with raw estimate, especially for low AB") +
+  theme_bw()
+
+
+set.seed(2017)
+
+
+#credible intervals
+career_sim_eb %>%
+  sample_n(20) %>%
+  mutate(name = reorder(name, .fitted)) %>%
+  ggplot(aes(.fitted, name)) +
+  geom_point() +
+  geom_point(aes(x = p), color = "red") +
+  geom_errorbarh(aes(xmin = .low, xmax = .high)) +
+  labs(x = "Estimated batting average (w/ 95% credible interval)",
+       y = "Player",
+       title = "Credible intevals for 20 randomly selected players",
+       subtitle = "The true batting average of each player is shown in red")
+
+career_sim_eb %>%
+  summarize(coverage = mean(.low <= p & p <= .high))
+
+# fit priors
+sim_prior<-ebb_fit_prior(career_sim,H,AB)
+
+
+## FDR control 
+pt<-career_sim_eb %>%
+  add_ebb_prop_test(.3,sort=TRUE)
+
+hall_of_fame_ba <- pt %>%
+  filter(.qvalue <= .1) %>%
+  arrange(desc(year))
+hall_of_fame_ba
+
+# expect less than 10% of true ba avgs
+mean(hall_of_fame_ba$p < .3)
+
+
+pt %>%
+  mutate(true_fdr = cummean(p < .3)) %>%
+  ggplot(aes(.qvalue,true_fdr)) +
+  geom_line() +
+  geom_abline(color="orange") +
+  labs(x = "q-value",
+       y = "True FDR at this q-value threshold")
+
+
+### beta-binomial regression 
+bb_reg<-career %>%
+  ebb_fit_prior(H, AB, method = "gamlss",mu_predictors = ~ log10(AB))
+
+tidy(bb_reg)
+
+set.seed(2017)
+
+
+career_sim_ab <- augment(bb_reg, career) %>%
+ # select(playerID, AB, .alpha0, .beta0) %>%
+  mutate(p = rbeta(n(), .alpha0, .beta0),
+         H = rbinom(n(), AB, p))
+
+career_ab_prior <- career_sim_ab %>%
+  ebb_fit_prior(H, AB, method = "gamlss", mu_predictors = ~ log10(AB))
+
+tidy(career_ab_prior) 
+
+### looks pretty close! ###
+
+##### Replications ####
+set.seed(2017)
+
+
+### this adds 50 simulations to run our method
+sim_replications <- career %>%
+  crossing(replication = 1:50) %>%
+  mutate(p = rbeta(n(), alpha0, beta0),
+         H = rbinom(n(), AB, p))
+
+sim_replications
+
+sim_replication_models<-sim_replications %>%
+  nest(-replication) %>%
+  mutate(prior = map(data, ~ ebb_fit_prior(.,H,AB)))
+
+sim_replication_priors <- sim_replication_models %>%
+  unnest(map(prior, tidy), .drop = TRUE)
+
+sim_replication_priors
+
+
+
+
+
+
 
 
