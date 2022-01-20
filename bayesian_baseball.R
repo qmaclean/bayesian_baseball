@@ -7,6 +7,14 @@ library(splines)
 library(purrr)
 library(broom)
 library(broomExtra)
+library(bayesrules)
+library(rstan)
+library(janitor)
+library(bayesplot)
+library(rstanarm)
+library(doParallel)
+library(cowplot)
+library(brms)
 
 options(digits = 3)
 
@@ -40,6 +48,8 @@ library(Lahman)
 data("Master")
 data("Batting")
 data("Pitching")
+
+
 
 
 pitchers <- Pitching %>%
@@ -97,6 +107,8 @@ ggplot(career,aes(avg,est,color=AB)) +
   labs(x = "Batting Avg",y = "Empirical Bayes batting avg") +
   geom_abline(intercept = 0,slope=1,color="red") +
   scale_color_gradient(trans = "log",breaks = 10^(1:4))
+
+plot_beta_binomial(alpha = alpha0,beta = beta0,y= .275,n = 50)
 
 ## horizontal dash = 0.259
 
@@ -307,7 +319,8 @@ hall_of_fame_ba
 # expect less than 10% of true ba avgs
 mean(hall_of_fame_ba$p < .3)
 
-
+### false discovery rate - fdr
+### posterior error probability - PeP
 pt %>%
   mutate(true_fdr = cummean(p < .3)) %>%
   ggplot(aes(.qvalue,true_fdr)) +
@@ -360,6 +373,10 @@ sim_replication_priors <- sim_replication_models %>%
 sim_replication_priors
 
 
+#### MCMC work
+min_ba<-min(career$avg)
+max_ba<-max(career$avg)
+len<-(max_ba - min_ba) * 1000
 
 
 
